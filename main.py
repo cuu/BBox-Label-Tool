@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 import os
 import glob
 import random
+import getopt
 
 # colors for the bboxes
 COLORS = ['red', 'blue', 'yellow', 'pink', 'cyan', 'green', 'black']
@@ -31,8 +32,6 @@ class LabelTool():
         # initialize global state
         self.imageDir = ''
         self.imageList= []
-        self.egDir = ''
-        self.egList = []
         self.outDir = ''
         self.cur = 0
         self.total = 0
@@ -40,6 +39,7 @@ class LabelTool():
         self.imagename = ''
         self.labelfilename = ''
         self.tkimg = None
+        self.nameFile =''
 
         # initialize mouse state
         self.STATE = {}
@@ -97,17 +97,20 @@ class LabelTool():
         self.idxEntry.pack(side = LEFT)
         self.goBtn = Button(self.ctrPanel, text = 'Go', command = self.gotoImage)
         self.goBtn.pack(side = LEFT)
-
-        # example pannel for illustration
-        self.egPanel = Frame(self.frame, border = 10)
-        self.egPanel.grid(row = 1, column = 0, rowspan = 5, sticky = N)
-        self.tmpLabel2 = Label(self.egPanel, text = "Examples:")
+        
+        #namefile class list
+        self.namePanel = Frame(self.frame, border = 10)
+        self.namePanel.grid(row = 1, column = 0, rowspan = 5, sticky = N)
+        self.tmpLabel2 = Label(self.namePanel, text = "Names:")
         self.tmpLabel2.pack(side = TOP, pady = 5)
-        self.egLabels = []
-        for i in range(3):
-            self.egLabels.append(Label(self.egPanel))
-            self.egLabels[-1].pack(side = TOP)
 
+        self.nameLb = Listbox(self.namePanel )
+#        self.nameLb.insert(END, "Python")
+#        self.nameLb.insert(END, "Ptt")
+
+        self.nameLb.pack(side=TOP)
+        self.nameLb.bind('<<ListboxSelect>>', self.onselect)
+         
         # display mouse position
         self.disp = Label(self.ctrPanel, text='')
         self.disp.pack(side = RIGHT)
@@ -118,22 +121,45 @@ class LabelTool():
         # for debugging
 ##        self.setImage()
 ##        self.loadDir()
+    def init2(self):
+        print( (self.nameLb.size() ,self.category))
+        if os.path.isfile(self.nameFile):
+            with open(self.nameFile,"r") as f:
+                for cnt, line in enumerate(f):            
+                    if len(line) > 2:# 2 chars min
+                        self.nameLb.insert(END, line.strip())
+
+
+        if self.nameLb.size() > self.category:
+            self.nameLb.selection_set(self.category)
+            self.nameLb.activate(self.category)
+
+    def onselect(self,evt):
+        # Note here that Tkinter passes an event object to onselect()
+        w = evt.widget
+        index = int(w.curselection()[0])
+        value = w.get(index)
+        print 'You selected item %d: "%s"' % (index, value)
+        self.category = index
+
 
     def loadDir(self, dbg = False):
+        self.entry.insert(0,self.imageDir)
         if not dbg:
             s = self.entry.get()
             self.parent.focus()
-            self.category = int(s)
+            self.category = 1
         else:
             s = r'D:\workspace\python\labelGUI'
 ##        if not os.path.isdir(s):
 ##            tkMessageBox.showerror("Error!", message = "The specified dir doesn't exist!")
 ##            return
         # get image list
-        self.imageDir = os.path.join(r'./Images', '%03d' %(self.category))
-        self.imageList = glob.glob(os.path.join(self.imageDir, '*.JPEG'))
+
+        print(self.imageDir)
+        self.imageList = glob.glob(os.path.join(self.imageDir, '*.jpg'))
         if len(self.imageList) == 0:
-            print 'No .JPEG images found in the specified dir!'
+            print 'No .jpg images found in the specified dir! %s' % self.imageDir
             return
 
         # default to the 1st image in the collection
@@ -141,28 +167,7 @@ class LabelTool():
         self.total = len(self.imageList)
 
          # set up output dir
-        self.outDir = os.path.join(r'./Labels', '%03d' %(self.category))
-        if not os.path.exists(self.outDir):
-            os.mkdir(self.outDir)
-
-        # load example bboxes
-        self.egDir = os.path.join(r'./Examples', '%03d' %(self.category))
-        if not os.path.exists(self.egDir):
-            return
-        filelist = glob.glob(os.path.join(self.egDir, '*.JPEG'))
-        self.tmp = []
-        self.egList = []
-        random.shuffle(filelist)
-        for (i, f) in enumerate(filelist):
-            if i == 3:
-                break
-            im = Image.open(f)
-            r = min(SIZE[0] / im.size[0], SIZE[1] / im.size[1])
-            new_size = int(r * im.size[0]), int(r * im.size[1])
-            self.tmp.append(im.resize(new_size, Image.ANTIALIAS))
-            self.egList.append(ImageTk.PhotoImage(self.tmp[-1]))
-            self.egLabels[i].config(image = self.egList[-1], width = SIZE[0], height = SIZE[1])
-
+        self.outDir = self.imageDir
         self.loadImage()
         print '%d images loaded from %s' %(self.total, s)
 
@@ -178,8 +183,13 @@ class LabelTool():
         # load labels
         self.clearBBox()
         self.imagename = os.path.split(imagepath)[-1].split('.')[0]
-        labelname = self.imagename + '.txt'
+        labelname = self.imagename + '.bblabel'
+
         self.labelfilename = os.path.join(self.outDir, labelname)
+
+        labelname = self.imagename + '.txt'
+        self.darknet_labelfilename = os.path.join(self.outDir, labelname)
+
         bbox_cnt = 0
         if os.path.exists(self.labelfilename):
             with open(self.labelfilename) as f:
@@ -197,6 +207,34 @@ class LabelTool():
                     self.bboxIdList.append(tmpId)
                     self.listbox.insert(END, '(%d, %d) -> (%d, %d)' %(tmp[0], tmp[1], tmp[2], tmp[3]))
                     self.listbox.itemconfig(len(self.bboxIdList) - 1, fg = COLORS[(len(self.bboxIdList) - 1) % len(COLORS)])
+
+    def convert(self,size, box): #size=img size,box={x1,x2,y1,y2},to the darknet format
+        dw = 1./size[0]
+        dh = 1./size[1]
+        x = (box[0] + box[1])/2.0
+        y = (box[2] + box[3])/2.0
+        w = box[1] - box[0]
+        h = box[3] - box[2]
+        x = x*dw
+        w = w*dw
+        y = y*dh
+        h = h*dh
+        return (x,y,w,h)
+
+    def save_darknet_label(self):
+        with open(self.darknet_labelfilename,"w") as f:
+            w = self.tkimg.width()
+            h = self.tkimg.height()
+            print((w,h))
+            for bbox in self.bboxList:
+                xmin = bbox[0]
+                xmax = bbox[2]
+                ymin = bbox[1]
+                ymax = bbox[3]
+                b = (float(xmin), float(xmax), float(ymin), float(ymax))
+                bb = self.convert((w,h), b)
+                print(bb)
+                f.write(str(self.category) + " " + " ".join([str(a) for a in bb]) + '\n')
 
     def saveImage(self):
         with open(self.labelfilename, 'w') as f:
@@ -262,12 +300,14 @@ class LabelTool():
 
     def prevImage(self, event = None):
         self.saveImage()
+        self.save_darknet_label() 
         if self.cur > 1:
             self.cur -= 1
             self.loadImage()
 
     def nextImage(self, event = None):
         self.saveImage()
+        self.save_darknet_label()
         if self.cur < self.total:
             self.cur += 1
             self.loadImage()
@@ -285,9 +325,44 @@ class LabelTool():
 ##        self.mainPanel.config(width = self.tkimg.width())
 ##        self.mainPanel.config(height = self.tkimg.height())
 ##        self.mainPanel.create_image(0, 0, image = self.tkimg, anchor=NW)
+def usage():
+    print "namefile is a class list in ascii string"
+    print "cli errors"
 
 if __name__ == '__main__':
+
+    imagedir = ""
+    classid = 1
+    namefile = ""
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'd:c:n:h', ['dir=', 'classid=', 'namefile=','help'])
+    except getopt.GetoptError:
+        usage()
+        sys.exit(2)
+
+    for opt, arg in opts:
+        if opt in ('-h', '--help'):
+            usage()
+            sys.exit(2)
+        elif opt in ('-d', '--dir'):
+            imagedir = arg
+        elif opt in ('-c', '--classid'):
+            classid = arg
+        elif opt in('-n','--namefile'):
+            namefile = arg
+        else:
+            usage()
+            sys.exit(2)
+
+
     root = Tk()
     tool = LabelTool(root)
     root.resizable(width =  True, height = True)
+    tool.imageDir = imagedir
+    tool.category = int(classid)
+    tool.nameFile = namefile
+
+    tool.init2()
+
     root.mainloop()
